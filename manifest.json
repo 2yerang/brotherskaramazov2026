@@ -1,0 +1,23 @@
+{
+  "name": "브라더스 까라마조프 관극 다이어리",
+  "short_name": "까라마조프",
+  "description": "뮤지컬 브라더스 까라마조프 2026 관람 기록 앱",
+  "start_url": "/brotherskaramazov2026/",
+  "scope": "/brotherskaramazov2026/",
+  "display": "standalone",
+  "background_color": "#f8f8f6",
+  "theme_color": "#1a1f3d",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
