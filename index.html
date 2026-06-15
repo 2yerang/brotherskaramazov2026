@@ -806,27 +806,31 @@ function buildMiniSeat(zone, row, num) {
 
 function renderHome() {
   const records = getRecords();
+  const schedules = getSchedule();
   const now = new Date(); now.setHours(0,0,0,0);
   const past = records.filter(r => new Date(r.date+'T00:00:00') < now);
-  const future = records.filter(r => new Date(r.date+'T00:00:00') >= now).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+  const futureRecs = records.filter(r => new Date(r.date+'T00:00:00') >= now)
+    .sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+  const futureScheds = schedules.filter(s => new Date(s.date+'T00:00:00') >= now)
+    .sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
   const boards = getStampBoards();
   const totalStamps = boards.reduce((t,b) => t+(b.count||0), 0);
 
   document.getElementById('home-total').textContent = past.length;
-  document.getElementById('home-upcoming').textContent = future.length;
+  document.getElementById('home-upcoming').textContent = futureRecs.length;
   document.getElementById('home-stamp').textContent = totalStamps;
 
   const nextArea = document.getElementById('next-show-area');
-  if (future.length) {
-    const n = future[0];
-    const dd = dday(n.date);
-    const castHtml = ROLES.map(r => n[r.field] ?
-      '<span class="next-show-pill pill-'+r.field+'">'+n[r.field]+'</span>' : ''
+  const nextSrc = futureScheds.length ? futureScheds[0] : futureRecs.length ? futureRecs[0] : null;
+  if (nextSrc) {
+    const dd = dday(nextSrc.date);
+    const castHtml = ROLES.map(r => nextSrc[r.field] ?
+      '<span class="next-show-pill pill-'+r.field+'">'+nextSrc[r.field]+'</span>' : ''
     ).join('');
     nextArea.innerHTML = '<div class="next-show-card">'
       +'<div class="next-show-label">NEXT SHOW</div>'
       +'<div class="next-show-dday">'+dd+'</div>'
-      +'<div class="next-show-date">'+fmtDate(n.date)+(n.time?' '+n.time:'')+'</div>'
+      +'<div class="next-show-date">'+fmtDate(nextSrc.date)+(nextSrc.time?' '+nextSrc.time:'')+'</div>'
       +'<div class="next-show-cast">'+castHtml+'</div>'
       +'</div>';
   } else {
@@ -834,8 +838,8 @@ function renderHome() {
   }
 
   const upEl = document.getElementById('upcoming-list');
-  if (future.length) {
-    upEl.innerHTML = future.slice(0,5).map(r => {
+  if (futureRecs.length) {
+    upEl.innerHTML = futureRecs.slice(0,5).map(r => {
       const cast = ROLES.map(ro => r[ro.field]).filter(Boolean).join(' · ');
       const seat = r.seatZone ? getSeatLabel(r.seatZone, r.seatRow, r.seatNumber) : '';
       return '<div class="upcoming-item">'
@@ -872,11 +876,15 @@ function renderCal() {
   if (calYear === undefined) initCal();
   document.getElementById('cal-title').textContent = calYear+'년 '+(calMonth+1)+'월';
   const records = getRecords();
+  const schedules = getSchedule();
 
   const filtersEl = document.getElementById('cal-filters');
   let fhtml = '';
   ROLES.forEach(r => {
-    const actors = [...new Set(records.map(rec => rec[r.field]).filter(Boolean))];
+    const actors = [...new Set([
+      ...records.map(rec => rec[r.field]),
+      ...schedules.map(s => s[r.field])
+    ].filter(Boolean))];
     actors.forEach(a => {
       const active = calFilters[r.field] === a;
       fhtml += '<button class="cal-filter-btn" style="'+(active?'background:'+r.color+';border-color:'+r.color+';color:#fff':'')+'" onclick="setCalFilter(\''+r.field+'\',\''+a+'\',this)">'+a+'</button>';
@@ -894,14 +902,16 @@ function renderCal() {
     const ds = d.toISOString().slice(0,10);
     const other = d.getMonth() !== calMonth;
     const isT = ds === ts;
-    let recs = records.filter(r => r.date === ds);
-    Object.entries(calFilters).forEach(([field,val]) => {
-      if (val) recs = recs.filter(r => r[field] === val);
+    let dayScheds = schedules.filter(s => s.date === ds);
+    let dayRecs = records.filter(r => r.date === ds);
+    Object.entries(calFilters).forEach(([field, val]) => {
+      if (val) { dayScheds = dayScheds.filter(s => s[field] === val); dayRecs = dayRecs.filter(r => r[field] === val); }
     });
-    const chips = recs.slice(0,3).map(r => {
-      const roleField = ROLES.find(ro => r[ro.field])?.field || 'fyodor';
-      const actor = r[roleField] || '';
-      return '<div class="cal-chip chip-'+roleField+'">'+actor+'</div>';
+    const allItems = [...dayScheds, ...dayRecs.filter(r => !dayScheds.some(s => s.time === r.time))];
+    const chips = allItems.slice(0,3).map(item => {
+      const roleEntry = ROLES.find(ro => item[ro.field]);
+      const roleField = roleEntry ? roleEntry.field : 'fyodor';
+      return '<div class="cal-chip chip-'+roleField+'">'+item[roleField]+'</div>';
     }).join('');
     html += '<div class="cal-cell'+(other?' other-month':'')+(isT?' today':'')+'" onclick="showCalDay(\''+ds+'\')">'
       +'<div class="cal-day-num">'+d.getDate()+'</div>'+chips+'</div>';
@@ -918,14 +928,23 @@ function setCalFilter(field, name, btn) {
 
 function showCalDay(ds) {
   const recs = getRecords().filter(r => r.date === ds);
+  const scheds = getSchedule().filter(s => s.date === ds);
   const el = document.getElementById('cal-day-detail');
-  if (!recs.length) { el.innerHTML = ''; return; }
+  if (!recs.length && !scheds.length) { el.innerHTML = ''; return; }
+  const shown = [];
+  scheds.forEach(s => {
+    const matchRec = recs.find(r => r.time === s.time);
+    shown.push({...s, _rec: matchRec || null});
+  });
+  recs.forEach(r => { if (!scheds.some(s => s.time === r.time)) shown.push({...r, _rec: r}); });
+  shown.sort((a,b) => (a.time||'').localeCompare(b.time||''));
   el.innerHTML = '<div class="card"><div class="section-title">'+fmtDate(ds)+'</div>'
-    + recs.map(r => {
-      const cast = ROLES.map(ro => r[ro.field]?'<span class="casting-tag tag-'+ro.field+'">'+r[ro.field]+'</span>':'').join('');
-      const seat = r.seatZone ? getSeatLabel(r.seatZone,r.seatRow,r.seatNumber) : '';
-      return '<div class="record-item" onclick="openDetail(\''+r.id+'\')">'
-        +'<div class="rec-date-line">'+(r.time||'')+'</div>'
+    + shown.map(item => {
+      const r = item._rec;
+      const cast = ROLES.map(ro => item[ro.field]?'<span class="casting-tag tag-'+ro.field+'">'+item[ro.field]+'</span>':'').join('');
+      const seat = r && r.seatZone ? getSeatLabel(r.seatZone,r.seatRow,r.seatNumber) : '';
+      return '<div class="record-item" '+(r?'onclick="openDetail(\''+r.id+'\')"':'style="cursor:default;opacity:.85"')+'>'
+        +'<div class="rec-date-line">'+(item.time||'')+'</div>'
         +'<div class="rec-cast">'+cast+'</div>'
         +(seat?'<div class="rec-meta">'+seat+'</div>':'')
         +'</div>';

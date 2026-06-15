@@ -1,4 +1,4 @@
-const CACHE_NAME = 'brotherskaramazov2026-v2';
+const CACHE_NAME = 'brotherskaramazov2026-v3';
 const BASE = '/brotherskaramazov2026';
 
 const PRECACHE_URLS = [
